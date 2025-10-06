@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8">
+    <title>LazyWorld – Auto Reset Dashboard</title>
+    <style>
+      body {
+        margin: 0;
+        background: #0b0f14;
+        color: #9bb0c8;
+        font-family: system-ui, sans-serif;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+      }
+      h1 { color: #7cc2ff; font-weight: 600; }
+      #log { font-size: 13px; opacity: .7; margin-top: 8px; }
+      iframe { display:none; }
+    </style>
+  </head>
+  <body>
+    <h1>☯ LazyWorld đang vận hành...</h1>
+    <p>Nếu thế giới dừng, hệ thống sẽ tự tái sinh (auto reset).</p>
+    <div id="log">Đang khởi động...</div>
+
+    <!-- Chạy AI.html trong nền -->
+    <iframe id="world" src="AI.html"></iframe>
+
+    <script>
+      const log = m => {
+        const t = new Date().toLocaleTimeString();
+        document.getElementById("log").textContent = `[${t}] ${m}`;
+      };
+
+      let lastPing = Date.now();
+      let lastTick = 0;
+
+      // Nhận tín hiệu từ AI.html
+      window.addEventListener("message", e => {
+        if (!e.data || !e.data.tick) return;
+        lastTick = e.data.tick;
+        lastPing = Date.now();
+      });
+
+      // Gửi yêu cầu ping định kỳ
+      setInterval(() => {
+        const world = document.getElementById("world").contentWindow;
+        if (world) world.postMessage({ cmd: "ping" }, "*");
+      }, 3000);
+
+      // Theo dõi dừng → reset
+      setInterval(() => {
+        const dt = (Date.now() - lastPing) / 1000;
+        if (dt > 30) {
+          log("Phát hiện ngừng hoạt động → Reset thế giới 🌌");
+          document.getElementById("world").src = "AI.html?" + Date.now();
+          lastPing = Date.now();
+        }
+      }, 5000);
+
+      log("Đang khởi tạo LazyWorld...");
+    </script>
+  </body>
+</html>
