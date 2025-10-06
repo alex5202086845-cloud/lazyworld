@@ -1,117 +1,323 @@
-<!-- === LazyWorld Add-ons: Auto-Reset + Auto-Log + Export (OneFile) === -->
-<script>
-(function(){
-  // ===== DOM: thêm cụm nút phụ ngay dưới hàng nút Start/Pause/Reset =====
-  const row = document.querySelector('.card .row');
-  function addBtn(id, label, click){
-    const b=document.createElement('button'); b.id=id; b.textContent=label; b.onclick=click; row.appendChild(b); return b;
-  }
-  const btnExpData = addBtn('btnExportData','⬇ Export Training (.json)', ()=> dataCollector.export());
-  const btnExpSnap = addBtn('btnExportSnap','⬇ Export Snapshot (.json)', exportSnapshot);
-  const btnExpSelf = addBtn('btnExportSelf','⬇ Export App (index.html)', exportSelf);
-
-  // ===== Data Collector: log nhẹ mỗi 1000 frame/tick =====
-  const dataCollector = {
-    buf: [], interval: 1000, autoSaveEvery: 10000,
-    push(){
-      // Các biến có sẵn trong AI.html: flow, law, mind, cells, karma
-      const e = {
-        t: Date.now(),
-        flow: Number(flow?.pool ?? 0),
-        base: Number(flow?.base ?? 0),
-        entropy: Number(law?.entropy ?? 0),
-        harmony: Number(mind?.harmony ?? 0),
-        karma: Number(typeof karma?.avg==='function' ? karma.avg() : 0),
-        pop: (typeof cells!=='undefined' ? cells.length : 0)
-      };
-      this.buf.push(e);
-      if (this.buf.length % this.autoSaveEvery === 0) this.saveLocal();
-      if (this.buf.length > 100000) this.buf.splice(0, this.buf.length-100000);
-    },
-    saveLocal(){
-      try{ localStorage.setItem('lazyworld_log', JSON.stringify(this.buf)); }
-      catch(e){ console.warn('localStorage full/blocked', e); }
-    },
-    export(){
-      const blob = new Blob([JSON.stringify(this.buf,null,2)],{type:'application/json'});
-      const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-      a.download = `lazyworld_training_${Date.now()}.json`; a.click(); URL.revokeObjectURL(a.href);
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LazyWorld – Auto Dharma Edition™ (LyzaWorld 5.2 – Karma Resonance)</title>
+  <style>
+    :root{
+      --bg:#090d1a;--panel:#0e1430;--ink:#eaf0ff;--muted:#9fb2d9;--line:#1a2250;--accent:#4cc9f0;--ok:#7bf1c8;--mind:#f0a7ff;--phys:#7aa2ff;--warn:#ffcc66;--danger:#ff6b81
     }
-  };
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial;background:
+      radial-gradient(1000px 600px at 10% -10%, #13204a 0%, transparent 60%),
+      linear-gradient(180deg,#0a0f1f 0%,#070b16 60%,#050912 100%);
+      color:var(--ink)}
+    header{display:flex;gap:.75rem;align-items:center;padding:14px 16px;position:sticky;top:0;background:rgba(5,9,18,.6);backdrop-filter:blur(8px);border-bottom:1px solid rgba(255,255,255,.06);z-index:10}
+    header h1{font-size:16px;margin:0;letter-spacing:.3px;font-weight:800}
+    header .pill{padding:6px 10px;border-radius:999px;font-size:12px;color:#041020;background:linear-gradient(90deg,var(--accent),#7bf1c8)}
 
-  // Hook: gọi sau mỗi vòng update() của thế giới
-  // (Trong file gốc đã có loop() gọi update(); ta chèn observer nhẹ nhàng)
-  const _update = typeof update === 'function' ? update : null;
-  if (_update){
-    window.update = function(){
-      _update.apply(this, arguments);
-      if (world?.running && (performance.now()|0) % dataCollector.interval === 0) dataCollector.push();
-      supervisor.tick();
-    }
-  }
+    main{display:grid;grid-template-columns:360px 1fr;gap:16px;padding:16px;max-width:1400px;margin:0 auto}
+    @media (max-width:1100px){main{grid-template-columns:1fr}}
 
-  // ===== Auto-Reset Supervisor: nếu “đứng hình” quá lâu thì reset =====
-  const supervisor = (function(){
-    let last = {flow:0, entropy:0, pop:0, time:performance.now()};
-    const IDLE_MS = 30000; // 30s
-    const EPS = 1e-3;
-    function progressed(){
-      const now = performance.now();
-      const changed =
-        Math.abs((flow?.pool??0) - last.flow) > 0.0005 ||
-        Math.abs((law?.entropy??0) - last.entropy) > 0.0005 ||
-        Math.abs((cells?.length??0) - last.pop) > 0;
-      if (changed){
-        last.flow = (flow?.pool??0);
-        last.entropy = (law?.entropy??0);
-        last.pop = (cells?.length??0);
-        last.time = now;
+    .card{background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));border:1px solid rgba(255,255,255,.08);border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    .panel{padding:14px}
+    .panel h2{margin:0 0 12px;font-size:14px;letter-spacing:.2px;color:#dfe6ff;text-transform:uppercase}
+    .row{display:flex;gap:8px;flex-wrap:wrap}
+    .row>*{flex:1}
+    label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+    input[type="number"],input[type="text"],select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:#0f1430;color:var(--ink);outline:none}
+    input[type="range"]{width:100%}
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.14);background:#0f1430;color:var(--ink);cursor:pointer;user-select:none}
+    .btn:hover{background:#12183a}
+    .btn.primary{background:linear-gradient(180deg,#1a245a,#12183a);border-color:#3141a1}
+    .btn.killer{background:linear-gradient(180deg,#3a1120,#1c0a12);border-color:#5a1a2a;color:#ffd7e1}
+
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:8px}
+    .stat{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:10px}
+    .stat b{display:block;font-size:12px;color:var(--muted)}
+    .stat span{font-size:18px}
+
+    canvas{width:100%;height:420px;border-radius:12px;background:linear-gradient(180deg,#0a0e1f,#0b1228)}
+    .legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:8px}
+    .dot{width:10px;height:10px;border-radius:999px;display:inline-block;margin-right:6px}
+    .dot.phys{background:var(--phys)}
+    .dot.bio{background:var(--ok)}
+    .dot.mind{background:var(--mind)}
+
+    .log{height:180px;overflow:auto;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#0c1022;border-radius:10px;padding:10px;border:1px solid rgba(255,255,255,.07)}
+    .log p{margin:.25rem 0;color:#c7d1ff}
+
+    .footer{padding:10px 16px;opacity:.7;font-size:12px;text-align:center}
+    .kbd{padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12)}
+
+    .countdown{height:8px;background:#0f1430;border:1px solid rgba(255,255,255,.12);border-radius:999px;overflow:hidden}
+    .bar{height:100%;width:0;background:linear-gradient(90deg,#7bf1c8,#4cc9f0)}
+
+    details{border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:8px 10px}
+    summary{cursor:pointer;color:#cfe1ff}
+    code{color:#a7f3d0}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>LazyWorld – Auto Dharma Edition™</h1>
+    <span class="pill">LyzaWorld 5.2 · Karma Resonance</span>
+  </header>
+
+  <main>
+    <!-- Left: Controls -->
+    <section class="card panel" id="controls">
+      <h2>Tự vận hành</h2>
+      <div class="grid">
+        <div>
+          <label>Seed (tùy chọn, để trống = ngẫu nhiên)</label>
+          <input id="seed" type="text" placeholder="auto" />
+        </div>
+        <div>
+          <label>Tốc độ (ms/tick)</label>
+          <input id="tickMs" type="number" min="8" step="1" value="40" />
+        </div>
+      </div>
+
+      <div class="grid" style="margin-top:8px">
+        <div>
+          <label>Số tác tử (agents)</label>
+          <input id="nAgents" type="number" min="64" max="8192" step="64" value="512" />
+        </div>
+        <div>
+          <label>Chu kỳ Auto-Reset (tick)</label>
+          <input id="autoReset" type="number" min="1000" step="100" value="10000" />
+        </div>
+      </div>
+
+      <div class="grid" style="margin-top:8px">
+        <div>
+          <label>Entropy Drift (0–1)</label>
+          <input id="entropy" type="range" min="0" max="1" step="0.01" value="0.12" />
+        </div>
+        <div>
+          <label>Hệ số Cộng hưởng Karma (κ)</label>
+          <input id="kappa" type="range" min="0" max="2" step="0.01" value="0.65" />
+        </div>
+      </div>
+
+      <div class="grid" style="margin-top:8px">
+        <div>
+          <label>HeavenLaw Safety</label>
+          <select id="safety">
+            <option value="soft" selected>Soft Guard</option>
+            <option value="strict">Strict Guard</option>
+            <option value="off">Tắt (mạo hiểm)</option>
+          </select>
+        </div>
+        <div>
+          <label>Điều khiển</label>
+          <div class="row">
+            <button class="btn" id="btnPause">⏸ Tạm dừng</button>
+            <button class="btn killer" id="btnKill">✖ Kill</button>
+            <button class="btn" id="btnExport">⬇ Tải dữ liệu (.json)</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:10px">
+        <label>Đếm ngược Auto-Reset</label>
+        <div class="countdown"><div class="bar" id="bar"></div></div>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><b>Tick</b><span id="statTick">0</span></div>
+        <div class="stat"><b>Chu kỳ</b><span id="statCycle">0</span></div>
+        <div class="stat"><b>Entropy</b><span id="statEntropy">0.12</span></div>
+        <div class="stat"><b>Karma Σ</b><span id="statKarma">0</span></div>
+      </div>
+
+      <details style="margin-top:12px">
+        <summary>Karma Resonance – mô hình cập nhật</summary>
+        <pre style="white-space:pre-wrap;font-size:12px;color:#a7f3d0;background:#0a0e1f;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,.06)">
+P' = clamp(P + kBP*(B-0.5) + noise)
+B' = clamp(B + kPB*(P-0.5) + kMB*(M-0.5) + noise)
+M' = clamp(M + kBM*(B-0.5) + κ*(avg_neighbor_karma - self_karma)*0.05 + noise)
+self_karma = wP*P + wB*B + wM*M
+        </pre>
+      </details>
+    </section>
+
+    <!-- Right: Viz + Logs -->
+    <section class="card panel" id="viz">
+      <h2>Thị giác hoá thế giới</h2>
+      <canvas id="view" width="1024" height="420"></canvas>
+      <div class="legend">
+        <span><i class="dot phys"></i>Thể (P)</span>
+        <span><i class="dot bio"></i>Sinh (B)</span>
+        <span><i class="dot mind"></i>Tâm (M)</span>
+      </div>
+      <div class="grid" style="margin-top:12px">
+        <div class="card panel" style="padding:10px">
+          <h2>Log</h2>
+          <div class="log" id="log"></div>
+        </div>
+        <div class="card panel" style="padding:10px">
+          <h2>Lịch sử dữ liệu</h2>
+          <div class="row" style="margin-bottom:8px">
+            <button class="btn" id="btnSnapshot">📸 Snapshot PNG</button>
+            <button class="btn" id="btnCopyState">📋 Copy State hiện tại</button>
+          </div>
+          <p style="font-size:12px;color:var(--muted);margin-top:0">Mỗi chu kỳ kết thúc sẽ tự ghi vào <code>window.historyData</code>. Nút “Tải dữ liệu (.json)” sẽ xuất toàn bộ.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="footer">
+    LazyWorld © – Vũ trụ lười: tự sinh – tự diệt – tự ghi nhớ. <span class="kbd">Space</span> tạm dừng, <span class="kbd">r</span> khởi sinh mới, <span class="kbd">s/S</span> chỉnh tốc.
+  </div>
+
+  <script>
+    /********************
+     * Utils & RNG      *
+     ********************/
+    const $ = (q)=>document.querySelector(q);
+    const logBox = $('#log');
+    function log(msg){ const p=document.createElement('p'); p.textContent=`[${new Date().toLocaleTimeString()}] ${msg}`; logBox.appendChild(p); logBox.scrollTop=logBox.scrollHeight; }
+    function clamp(x,lo,hi){ return Math.max(lo, Math.min(hi,x)); }
+
+    function xorshift32(seed){ let s=seed>>>0||2463534242; return ()=>{ s^=s<<13; s^=s>>>17; s^=s<<5; return (s>>>0)/4294967296; }; }
+    function seeded(seedStr){ if(!seedStr) return Math.random; let h=2166136261; for(const c of seedStr) h=Math.imul(h^c.charCodeAt(0),16777619); return xorshift32(h); }
+
+    function download(filename, text){ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type:'application/json'})); a.download=filename; a.click(); URL.revokeObjectURL(a.href); }
+    async function copyText(text){ try{ await navigator.clipboard.writeText(text); log('Đã copy vào clipboard.'); } catch{ log('Clipboard bị chặn.'); } }
+
+    /********************
+     * World Definition *
+     ********************/
+    const WORLD = {
+      version: 'LazyWorld Auto Dharma 1.0 – LyzaWorld 5.2',
+      params: {
+        weights: { wP:0.4, wB:0.35, wM:0.25 },
+        links:   { kBP:0.10, kPB:0.12, kMB:0.16, kBM:0.18 },
+        safety:  { soft:{cap:1.15, damp:0.06}, strict:{cap:1.02, damp:0.12}, off:{cap:9e9, damp:0} }
       }
-      return now - last.time < IDLE_MS;
+    };
+
+    class Agent{
+      constructor(rng){ this.P=0.5+(rng()-0.5)*0.2; this.B=0.5+(rng()-0.5)*0.2; this.M=0.5+(rng()-0.5)*0.2; }
+      karma(w){ return w.wP*this.P + w.wB*this.B + w.wM*this.M; }
     }
-    function tick(){
-      if (!world?.running) return;
-      if (!progressed()){
-        console.log('🌌 Auto-reset: world idle too long');
-        // “luân hồi có ký ức”: giữ chút thiên hướng đã học
-        const keepBias = (typeof law!=='undefined' && typeof law.stability!=='undefined');
-        const prevEntropy = law?.entropy ?? 0.5;
-        const prevBase = flow?.base ?? 0.01;
-        if (typeof reset==='function') reset();
-        // “di truyền” rất nhẹ để lần sau hội tụ nhanh hơn
-        if (keepBias){
-          if (typeof flow!=='undefined') flow.base = Math.max(0.002, prevBase * 0.98 + 0.002);
-          if (typeof law!=='undefined')  law.entropy = Math.min(0.82, Math.max(0.22, prevEntropy*0.98 + 0.01));
+
+    class LazyWorld{
+      constructor(){
+        this.t=0; this.cycle=0; this.agents=[]; this.rng=Math.random; this.stopped=true; this.timer=null; this.autoReset=10000;
+        this.cfg={ n:512, tickMs:40, entropy:0.12, kappa:0.65, safety:'soft', seed:'' };
+        this.canvas=$('#view'); this.ctx=this.canvas.getContext('2d');
+        // data history across cycles
+        window.historyData = window.historyData || [];
+      }
+      init(){
+        this.rng = seeded(this.cfg.seed);
+        this.agents = Array.from({length:this.cfg.n}, _=> new Agent(this.rng));
+        this.t=0; this._draw();
+        log(`Khởi sinh thế giới: n=${this.cfg.n}, seed=${this.cfg.seed||'random'}, safety=${this.cfg.safety}`);
+      }
+      step(){
+        const {wP,wB,wM}=WORLD.params.weights; const {kBP,kPB,kMB,kBM}=WORLD.params.links;
+        const ent=+$('#entropy').value; const kap=+$('#kappa').value; const guard=WORLD.params.safety[$('#safety').value];
+        const n=this.agents.length;
+        const karmas=new Float32Array(n); for(let i=0;i<n;i++) karmas[i]=this.agents[i].karma({wP,wB,wM});
+        const newP=new Float32Array(n), newB=new Float32Array(n), newM=new Float32Array(n);
+        for(let i=0;i<n;i++){
+          const a=this.agents[i];
+          const avgN=(karmas[(i-1+n)%n]+karmas[(i+1)%n])/2; const selfK=karmas[i]; const Rloc=avgN-selfK;
+          const noise = ()=> (this.rng()-0.5)*ent*0.2;
+          let P=a.P + kBP*(a.B-0.5) + noise();
+          let B=a.B + kPB*(a.P-0.5) + kMB*(a.M-0.5) + noise();
+          let M=a.M + kBM*(a.B-0.5) + kap*Rloc*0.05 + noise();
+
+          const cap=guard.cap, damp=guard.damp; const beyond=(x)=> Math.abs(x-0.5)>(cap-0.5); const pull=(x)=> x+(0.5-x)*damp;
+          if(beyond(P)) P=pull(P); if(beyond(B)) B=pull(B); if(beyond(M)) M=pull(M);
+          newP[i]=clamp(P,0,1); newB[i]=clamp(B,0,1); newM[i]=clamp(M,0,1);
         }
-        last.time = performance.now();
+        for(let i=0;i<n;i++){ const a=this.agents[i]; a.P=newP[i]; a.B=newB[i]; a.M=newM[i]; }
+        this.t++;
+        this._draw();
+
+        // Auto-Reset with auto-record
+        const auto=+$('#autoReset').value||this.autoReset;
+        if(this.t%auto===0){ this._recordCycle(); this.cycle++; log('♻ Tái sinh: Vòng nhân quả khép lại — thế giới tự tái sinh.'); this.init(); }
       }
+      _recordCycle(){
+        const {wP,wB,wM}=WORLD.params.weights;
+        const n=this.agents.length;
+        let sK=0,sP=0,sB=0,sM=0; for(const a of this.agents){ sK+=a.karma({wP,wB,wM}); sP+=a.P; sB+=a.B; sM+=a.M; }
+        const avgP=sP/n, avgB=sB/n, avgM=sM/n;
+        const rec={
+          version:WORLD.version,
+          cycle:this.cycle,
+          tick:this.t,
+          entropy:+$('#entropy').value,
+          kappa:+$('#kappa').value,
+          safety:$('#safety').value,
+          n:this.agents.length,
+          avg:{P:+avgP.toFixed(4),B:+avgB.toFixed(4),M:+avgM.toFixed(4)},
+          karmaSum:+sK.toFixed(4)
+        };
+        window.historyData.push(rec);
+        $('#statCycle').textContent=String(this.cycle+1);
+        log(`Lưu chu kỳ ${rec.cycle}: karmaΣ=${rec.karmaSum}, avg(P,B,M)=(${rec.avg.P}, ${rec.avg.B}, ${rec.avg.M})`);
+      }
+      loop(){ if(this.stopped) return; this.step(); this.timer=setTimeout(()=>this.loop(), Math.max(8,+$('#tickMs').value||40)); }
+      start(){ if(!this.agents.length) this.init(); this.stopped=false; this.loop(); log('▶ Auto-Start: Mô phỏng đang chạy.'); }
+      pause(){ this.stopped=true; if(this.timer) clearTimeout(this.timer); log('⏸ Tạm dừng'); }
+      kill(){ this.pause(); this.agents=[]; this._draw(true); log('✖ Kill: Xoá trạng thái trong RAM.'); }
+      reset(){ this.pause(); this.init(); log('↺ Reset thủ công: Khởi sinh mới.'); }
+      state(){ return { meta:WORLD.version, cycle:this.cycle, t:this.t, cfg:this.cfg, agents:this.agents.map(a=>({P:a.P,B:a.B,M:a.M})) }; }
+      snapshot(){ const data=this.canvas.toDataURL('image/png'); const a=document.createElement('a'); a.href=data; a.download=`lazyworld_${Date.now()}.png`; a.click(); }
+
+      _draw(empty){
+        const ctx=this.ctx, W=this.canvas.width, H=this.canvas.height; ctx.clearRect(0,0,W,H);
+        const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#0a1128'); g.addColorStop(1,'#0a0e1f'); ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+        drawGrid(ctx,W,H); if(empty||!this.agents.length) return;
+        const n=this.agents.length, step=W/n; ctx.lineWidth=2;
+        ctx.strokeStyle=getComputedStyle(document.documentElement).getPropertyValue('--phys'); ctx.beginPath(); for(let i=0;i<n;i++){const y=H*(1-this.agents[i].P*0.9-0.05);const x=i*step; if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);} ctx.stroke();
+        ctx.strokeStyle=getComputedStyle(document.documentElement).getPropertyValue('--ok'); ctx.beginPath(); for(let i=0;i<n;i++){const y=H*(1-this.agents[i].B*0.9-0.05);const x=i*step; if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);} ctx.stroke();
+        ctx.strokeStyle=getComputedStyle(document.documentElement).getPropertyValue('--mind'); ctx.beginPath(); for(let i=0;i<n;i++){const y=H*(1-this.agents[i].M*0.9-0.05);const x=i*step; if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);} ctx.stroke();
+        // HUD
+        $('#statTick').textContent=String(this.t);
+        $('#statEntropy').textContent=(+$('#entropy').value).toFixed(2);
+        $('#statKarma').textContent=this._sumKarma();
+        // countdown bar
+        const auto=+$('#autoReset').value||this.autoReset; const p = Math.min(1, this.t/auto); $('#bar').style.width = `${(p*100).toFixed(2)}%`;
+      }
+      _sumKarma(){ const {wP,wB,wM}=WORLD.params.weights; let s=0; for(const a of this.agents) s+=a.karma({wP,wB,wM}); return s.toFixed(3); }
     }
-    return {tick};
-  })();
 
-  // ===== Export snapshot của thế giới hiện tại =====
-  function exportSnapshot(){
-    try{
-      const snap = (typeof snapshot==='function')
-        ? snapshot()
-        : {flow:{pool:flow?.pool, base:flow?.base}, law:{entropy:law?.entropy, stability:law?.stability},
-           mind:{harmony:mind?.harmony, bloom:mind?.bloom}, pop:(cells?.length??0)};
-      const blob = new Blob([JSON.stringify(snap,null,2)],{type:'application/json'});
-      const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-      a.download = `lazyworld_snapshot_${Date.now()}.json`; a.click(); URL.revokeObjectURL(a.href);
-    }catch(e){ console.warn('snapshot failed', e); }
-  }
+    function drawGrid(ctx,W,H){ ctx.save(); ctx.strokeStyle='rgba(255,255,255,.06)'; ctx.lineWidth=1; for(let y=0;y<=H;y+=70){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); } for(let x=0;x<=W;x+=128){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); } ctx.restore(); }
 
-  // ===== Export chính trang này thành 1 file index.html =====
-  function exportSelf(){
-    const src = '<!DOCTYPE html>'+document.documentElement.outerHTML;
-    const blob = new Blob([src], {type:'text/html'});
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-    a.download = 'index.html'; a.click(); URL.revokeObjectURL(a.href);
-  }
+    const app = new LazyWorld();
 
-  // ===== Auto-save khi đóng trang =====
-  window.addEventListener('beforeunload', ()=> dataCollector.saveLocal());
-})();
-</script>
-<!-- === /LazyWorld Add-ons === -->
+    function syncCfg(){
+      app.cfg={ n:+$('#nAgents').value||512, tickMs:+$('#tickMs').value||40, entropy:+$('#entropy').value||0.12, kappa:+$('#kappa').value||0.65, safety:$('#safety').value, seed:$('#seed').value.trim() };
+      app.autoReset=+$('#autoReset').value||10000;
+    }
+
+    // Controls
+    $('#btnPause').addEventListener('click',()=>app.pause());
+    $('#btnKill').addEventListener('click',()=>app.kill());
+    $('#btnExport').addEventListener('click',()=>{
+      const json = JSON.stringify({version:WORLD.version, createdAt:new Date().toISOString(), params:app.cfg, cycles:window.historyData}, null, 2);
+      download(`lazyworld_history_${Date.now()}.json`, json);
+    });
+    $('#btnSnapshot').addEventListener('click',()=>app.snapshot());
+    $('#btnCopyState').addEventListener('click',()=>copyText(JSON.stringify(app.state())));
+
+    // Keyboard shortcuts
+    window.addEventListener('keydown',(e)=>{ if(e.key===' '){ e.preventDefault(); app.stopped?app.start():app.pause(); } if(e.key==='r'){ app.reset(); } if(e.key==='s'){ const v=+$('#tickMs').value; $('#tickMs').value=String(Math.max(8,v-5)); } if(e.key==='S'){ const v=+$('#tickMs').value; $('#tickMs').value=String(v+5); } });
+
+    // Boot: auto-start and auto-loop forever
+    (function boot(){ app._draw(true); syncCfg(); app.init(); app.start(); log('Auto Dharma: Khởi động tự động. Mọi chu kỳ sẽ tự ghi JSON vào historyData.'); })();
+  </script>
+</body>
+</html>
