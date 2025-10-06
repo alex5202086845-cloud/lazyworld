@@ -438,6 +438,60 @@ function selfTest(){
 
 // boot
 reset();
+  // === LazyWorld: Data Collector ===
+const dataCollector = {
+  buffer: [],
+  interval: 1000, // log mỗi 1000 tick
+  storeLimit: 100000, // giới hạn số mẫu trong bộ nhớ
+  save() {
+    try {
+      localStorage.setItem("lazyworld_log", JSON.stringify(this.buffer));
+      console.log("💾 Log saved:", this.buffer.length, "entries");
+    } catch (e) {
+      console.warn("Storage full or blocked:", e);
+    }
+  },
+  append() {
+    const entry = {
+      tick: state.tick,
+      entropy: state.ent,
+      reward: avg(state.rewards.slice(-60)),
+      karma: avg(state.rewards.slice(-240)),
+      w: state.w,
+      time: Date.now()
+    };
+    this.buffer.push(entry);
+    if (this.buffer.length > this.storeLimit) this.buffer.shift();
+  },
+  export() {
+    const blob = new Blob(
+      [JSON.stringify(this.buffer, null, 2)],
+      { type: "application/json" }
+    );
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `lazyworld_training_${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+};
+
+// Tích hợp vào vòng mô phỏng
+setInterval(() => {
+  if (state.running && state.tick % dataCollector.interval === 0) {
+    dataCollector.append();
+    if (state.tick % (dataCollector.interval * 10) === 0) dataCollector.save();
+  }
+}, 1000);
+
+// Thêm nút xuất ra dashboard
+const btn = document.createElement("button");
+btn.textContent = "⬇ Export Training Data (.json)";
+btn.onclick = () => dataCollector.export();
+btn.style.marginTop = "8px";
+document.querySelector(".row").appendChild(btn);
+
 </script>
 </body>
 </html>
+
