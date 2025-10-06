@@ -1,67 +1,117 @@
-<!DOCTYPE html>
-<html lang="vi">
-  <head>
-    <meta charset="UTF-8">
-    <title>LazyWorld – Auto Reset Dashboard</title>
-    <style>
-      body {
-        margin: 0;
-        background: #0b0f14;
-        color: #9bb0c8;
-        font-family: system-ui, sans-serif;
-        height: 100vh;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        text-align: center;
-      }
-      h1 { color: #7cc2ff; font-weight: 600; }
-      #log { font-size: 13px; opacity: .7; margin-top: 8px; }
-      iframe { display:none; }
-    </style>
-  </head>
-  <body>
-    <h1>☯ LazyWorld đang vận hành...</h1>
-    <p>Nếu thế giới dừng, hệ thống sẽ tự tái sinh (auto reset).</p>
-    <div id="log">Đang khởi động...</div>
+<!-- === LazyWorld Add-ons: Auto-Reset + Auto-Log + Export (OneFile) === -->
+<script>
+(function(){
+  // ===== DOM: thêm cụm nút phụ ngay dưới hàng nút Start/Pause/Reset =====
+  const row = document.querySelector('.card .row');
+  function addBtn(id, label, click){
+    const b=document.createElement('button'); b.id=id; b.textContent=label; b.onclick=click; row.appendChild(b); return b;
+  }
+  const btnExpData = addBtn('btnExportData','⬇ Export Training (.json)', ()=> dataCollector.export());
+  const btnExpSnap = addBtn('btnExportSnap','⬇ Export Snapshot (.json)', exportSnapshot);
+  const btnExpSelf = addBtn('btnExportSelf','⬇ Export App (index.html)', exportSelf);
 
-    <!-- Chạy AI.html trong nền -->
-    <iframe id="world" src="AI.html"></iframe>
-
-    <script>
-      const log = m => {
-        const t = new Date().toLocaleTimeString();
-        document.getElementById("log").textContent = `[${t}] ${m}`;
+  // ===== Data Collector: log nhẹ mỗi 1000 frame/tick =====
+  const dataCollector = {
+    buf: [], interval: 1000, autoSaveEvery: 10000,
+    push(){
+      // Các biến có sẵn trong AI.html: flow, law, mind, cells, karma
+      const e = {
+        t: Date.now(),
+        flow: Number(flow?.pool ?? 0),
+        base: Number(flow?.base ?? 0),
+        entropy: Number(law?.entropy ?? 0),
+        harmony: Number(mind?.harmony ?? 0),
+        karma: Number(typeof karma?.avg==='function' ? karma.avg() : 0),
+        pop: (typeof cells!=='undefined' ? cells.length : 0)
       };
+      this.buf.push(e);
+      if (this.buf.length % this.autoSaveEvery === 0) this.saveLocal();
+      if (this.buf.length > 100000) this.buf.splice(0, this.buf.length-100000);
+    },
+    saveLocal(){
+      try{ localStorage.setItem('lazyworld_log', JSON.stringify(this.buf)); }
+      catch(e){ console.warn('localStorage full/blocked', e); }
+    },
+    export(){
+      const blob = new Blob([JSON.stringify(this.buf,null,2)],{type:'application/json'});
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+      a.download = `lazyworld_training_${Date.now()}.json`; a.click(); URL.revokeObjectURL(a.href);
+    }
+  };
 
-      let lastPing = Date.now();
-      let lastTick = 0;
+  // Hook: gọi sau mỗi vòng update() của thế giới
+  // (Trong file gốc đã có loop() gọi update(); ta chèn observer nhẹ nhàng)
+  const _update = typeof update === 'function' ? update : null;
+  if (_update){
+    window.update = function(){
+      _update.apply(this, arguments);
+      if (world?.running && (performance.now()|0) % dataCollector.interval === 0) dataCollector.push();
+      supervisor.tick();
+    }
+  }
 
-      // Nhận tín hiệu từ AI.html
-      window.addEventListener("message", e => {
-        if (!e.data || !e.data.tick) return;
-        lastTick = e.data.tick;
-        lastPing = Date.now();
-      });
-
-      // Gửi yêu cầu ping định kỳ
-      setInterval(() => {
-        const world = document.getElementById("world").contentWindow;
-        if (world) world.postMessage({ cmd: "ping" }, "*");
-      }, 3000);
-
-      // Theo dõi dừng → reset
-      setInterval(() => {
-        const dt = (Date.now() - lastPing) / 1000;
-        if (dt > 30) {
-          log("Phát hiện ngừng hoạt động → Reset thế giới 🌌");
-          document.getElementById("world").src = "AI.html?" + Date.now();
-          lastPing = Date.now();
+  // ===== Auto-Reset Supervisor: nếu “đứng hình” quá lâu thì reset =====
+  const supervisor = (function(){
+    let last = {flow:0, entropy:0, pop:0, time:performance.now()};
+    const IDLE_MS = 30000; // 30s
+    const EPS = 1e-3;
+    function progressed(){
+      const now = performance.now();
+      const changed =
+        Math.abs((flow?.pool??0) - last.flow) > 0.0005 ||
+        Math.abs((law?.entropy??0) - last.entropy) > 0.0005 ||
+        Math.abs((cells?.length??0) - last.pop) > 0;
+      if (changed){
+        last.flow = (flow?.pool??0);
+        last.entropy = (law?.entropy??0);
+        last.pop = (cells?.length??0);
+        last.time = now;
+      }
+      return now - last.time < IDLE_MS;
+    }
+    function tick(){
+      if (!world?.running) return;
+      if (!progressed()){
+        console.log('🌌 Auto-reset: world idle too long');
+        // “luân hồi có ký ức”: giữ chút thiên hướng đã học
+        const keepBias = (typeof law!=='undefined' && typeof law.stability!=='undefined');
+        const prevEntropy = law?.entropy ?? 0.5;
+        const prevBase = flow?.base ?? 0.01;
+        if (typeof reset==='function') reset();
+        // “di truyền” rất nhẹ để lần sau hội tụ nhanh hơn
+        if (keepBias){
+          if (typeof flow!=='undefined') flow.base = Math.max(0.002, prevBase * 0.98 + 0.002);
+          if (typeof law!=='undefined')  law.entropy = Math.min(0.82, Math.max(0.22, prevEntropy*0.98 + 0.01));
         }
-      }, 5000);
+        last.time = performance.now();
+      }
+    }
+    return {tick};
+  })();
 
-      log("Đang khởi tạo LazyWorld...");
-    </script>
-  </body>
-</html>
+  // ===== Export snapshot của thế giới hiện tại =====
+  function exportSnapshot(){
+    try{
+      const snap = (typeof snapshot==='function')
+        ? snapshot()
+        : {flow:{pool:flow?.pool, base:flow?.base}, law:{entropy:law?.entropy, stability:law?.stability},
+           mind:{harmony:mind?.harmony, bloom:mind?.bloom}, pop:(cells?.length??0)};
+      const blob = new Blob([JSON.stringify(snap,null,2)],{type:'application/json'});
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+      a.download = `lazyworld_snapshot_${Date.now()}.json`; a.click(); URL.revokeObjectURL(a.href);
+    }catch(e){ console.warn('snapshot failed', e); }
+  }
+
+  // ===== Export chính trang này thành 1 file index.html =====
+  function exportSelf(){
+    const src = '<!DOCTYPE html>'+document.documentElement.outerHTML;
+    const blob = new Blob([src], {type:'text/html'});
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = 'index.html'; a.click(); URL.revokeObjectURL(a.href);
+  }
+
+  // ===== Auto-save khi đóng trang =====
+  window.addEventListener('beforeunload', ()=> dataCollector.saveLocal());
+})();
+</script>
+<!-- === /LazyWorld Add-ons === -->
